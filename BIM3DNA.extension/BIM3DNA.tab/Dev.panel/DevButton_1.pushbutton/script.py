@@ -101,6 +101,7 @@ from System.Windows.Forms import (
     DataGridViewTextBoxColumn,
     DataGridViewButtonColumn,
     DataGridViewAutoSizeColumnsMode,
+    DataGridViewSelectionMode,
     DockStyle,
     TextBox,
     Button,
@@ -363,6 +364,8 @@ class ElementEditorForm(Form):
         self.dataGrid.Dock = DockStyle.Fill
         self.dataGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
         self.dataGrid.CellContentClick += self.dataGrid_CellContentClick
+        self.dataGrid.MultiSelect = True
+        self.dataGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect
         self.gridPanel.Controls.Add(self.dataGrid)
 
         # --- 3. Columns
@@ -631,214 +634,154 @@ class ElementEditorForm(Form):
         if col != "TagStatus":
             return
 
-        row = self.dataGrid.Rows[e.RowIndex]
-        cat = row.Cells["Category"].Value
-        val = row.Cells["TagStatus"].Value
+        # Always include the clicked row
+        clicked_row = self.dataGrid.Rows[e.RowIndex]
+        selected_indexes = {r.Index for r in self.dataGrid.SelectedRows if r.Index >= 0}
+        selected_indexes.add(clicked_row.Index)
 
-        # --- ADD/REMOVE ON PIPES & FITTINGS ---
-        if cat in ("Pipes", "Pipe Fittings"):
-            host_id = int(str(row.Cells["Id"].Value))
-            host = doc.GetElement(ElementId(host_id))
+        # Build selected rows list from indexes
+        selected_rows = [self.dataGrid.Rows[i] for i in selected_indexes]
 
-            # --- ADD TAG ---
-            if val == "Add/Place Tag":
-                tr = Transaction(doc, "Add Tag")
-                tr.Start()
-                bb = host.get_BoundingBox(uidoc.ActiveView)
-                if bb:
-                    ctr = XYZ(
-                        (bb.Min.X + bb.Max.X) / 2.0,
-                        (bb.Min.Y + bb.Max.Y) / 2.0,
-                        (bb.Min.Z + bb.Max.Z) / 2.0,
-                    )
-                    ref = Reference(host)
-                    new_tag = IndependentTag.Create(
-                        doc,
-                        doc.ActiveView.Id,
-                        ref,
-                        True,
-                        TagMode.TM_ADDBY_CATEGORY,
-                        TagOrientation.Horizontal,
-                        ctr,
-                    )
-                tr.Commit()
+        for row in selected_rows:
+            cat = row.Cells["Category"].Value
+            val = row.Cells["TagStatus"].Value
 
-                # flip button
-                row.Cells["TagStatus"].Value = "Remove Tag"
-
-                # add the new‐tag row here
-                te = doc.GetElement(new_tag.Id)
-                if te:
-                    data = {
-                        "Id": str(te.Id),
-                        "Category": "Pipe Tags",
-                        "Name": te.Name or "",
-                        "DefaultCode": host.LookupParameter("Comments").AsString()
-                        or "",
-                        "NewCode": row.Cells["NewCode"].Value,
-                        "OutsideDiameter": row.Cells["OutsideDiameter"].Value,
-                        "Length": row.Cells["Length"].Value,
-                        "Size": "",
-                        "GEB_Article_Number": "",
-                        "TagStatus": "Yes",
-                    }
-                    self._add_row(data)
-                return
-
-            # --- REMOVE TAG ---
-            if cat in ("Pipes", "Pipe Fittings") and val == "Remove Tag":
+            # ----------------------
+            # ADD/REMOVE TAG (Pipes)
+            # ----------------------
+            if cat == "Pipes":
                 host_id = int(str(row.Cells["Id"].Value))
-                deleted_id = None
+                host = doc.GetElement(ElementId(host_id))
 
-                # find the matching tag element
-                for t in (
-                    FilteredElementCollector(doc)
-                    .OfCategory(BuiltInCategory.OST_PipeTags)
-                    .WhereElementIsNotElementType()
-                    .ToElements()
-                ):
-                    # unwrap LinkElementId if present
-                    tagged = (
-                        t.GetTaggedElementIds()
-                        if hasattr(t, "GetTaggedElementIds")
-                        else [t.TaggedElementId]
-                    )
-                    for rid in tagged:
-                        # New: handle LinkElementId vs plain ElementId
-                        eid = (
-                            rid.HostElementId.IntegerValue
-                            if hasattr(rid, "HostElementId")
-                            else rid.IntegerValue
+                if val == "Add/Place Tag":
+                    tr = Transaction(doc, "Add Tag")
+                    tr.Start()
+                    bb = host.get_BoundingBox(uidoc.ActiveView)
+                    if bb:
+                        ctr = XYZ(
+                            (bb.Min.X + bb.Max.X) / 2.0,
+                            (bb.Min.Y + bb.Max.Y) / 2.0,
+                            (bb.Min.Z + bb.Max.Z) / 2.0,
                         )
-                        if eid == host_eid:
-                            deleted_id = t.Id.IntegerValue
-                            tag_elem_id = t.Id
+                        ref = Reference(host)
+                        new_tag = IndependentTag.Create(
+                            doc,
+                            doc.ActiveView.Id,
+                            ref,
+                            True,
+                            TagMode.TM_ADDBY_CATEGORY,
+                            TagOrientation.Horizontal,
+                            ctr,
+                        )
+                    tr.Commit()
+
+                    row.Cells["TagStatus"].Value = "Remove Tag"
+
+                    # Add new Pipe Tag row
+                    te = doc.GetElement(new_tag.Id)
+                    if te:
+                        data = {
+                            "Id": str(te.Id),
+                            "Category": "Pipe Tags",
+                            "Name": te.Name or "",
+                            "DefaultCode": host.LookupParameter("Comments").AsString()
+                            or "",
+                            "NewCode": row.Cells["NewCode"].Value,
+                            "OutsideDiameter": row.Cells["OutsideDiameter"].Value,
+                            "Length": row.Cells["Length"].Value,
+                            "Size": "",
+                            "GEB_Article_Number": "",
+                            "TagStatus": "Yes",
+                        }
+                        self._add_row(data)
+
+                elif val == "Remove Tag":
+                    host_eid = host.Id.IntegerValue
+                    deleted_id = None
+                    tag_elem_id = None
+                    for t in (
+                        FilteredElementCollector(doc)
+                        .OfCategory(BuiltInCategory.OST_PipeTags)
+                        .WhereElementIsNotElementType()
+                        .ToElements()
+                    ):
+                        tagged = (
+                            t.GetTaggedElementIds()
+                            if hasattr(t, "GetTaggedElementIds")
+                            else [t.TaggedElementId]
+                        )
+                        for rid in tagged:
+                            eid = (
+                                rid.HostElementId.IntegerValue
+                                if hasattr(rid, "HostElementId")
+                                else rid.IntegerValue
+                            )
+                            if eid == host_eid:
+                                deleted_id = t.Id.IntegerValue
+                                tag_elem_id = t.Id
+                                break
+                        if deleted_id:
                             break
                     if deleted_id:
-                        break
+                        self.dataGrid.SelectionChanged -= self.on_row_selected
+                        tr = Transaction(doc, "Remove Tag")
+                        tr.Start()
+                        doc.Delete(tag_elem_id)
+                        tr.Commit()
+                        row.Cells["TagStatus"].Value = "Add/Place Tag"
+                        row.Cells["TagStatus"].ReadOnly = False
+                        for i in range(self.dataGrid.Rows.Count):
+                            r2 = self.dataGrid.Rows[i]
+                            if (
+                                r2.Cells["Category"].Value == "Pipe Tags"
+                                and int(str(r2.Cells["Id"].Value)) == deleted_id
+                            ):
+                                self.dataGrid.Rows.RemoveAt(i)
+                                break
+                        self.dataGrid.SelectionChanged += self.on_row_selected
 
-                if deleted_id:
-                    # unsubscribe row-selection highlight
-                    self.dataGrid.SelectionChanged -= self.on_row_selected
-                    # delete the tag in Revit
-                    tr = Transaction(doc, "Remove Tag")
-                    tr.Start()
-                    doc.Delete(tag_elem_id)
-                    tr.Commit()
-                    # flip the host's button back to Add/Place
-                    row.Cells["TagStatus"].Value = "Add/Place Tag"
-                    row.Cells["TagStatus"].ReadOnly = False
-                    # remove its Pipe-Tags row
-                    for i in range(self.dataGrid.Rows.Count):
-                        r2 = self.dataGrid.Rows[i]
-                        if (
-                            r2.Cells["Category"].Value == "Pipe Tags"
-                            and int(str(r2.Cells["Id"].Value)) == deleted_id
-                        ):
-                            self.dataGrid.Rows.RemoveAt(i)
-                            break
-                    self.dataGrid.SelectionChanged += self.on_row_selected
-                return
-
-        # --- REMOVE AN ORPHAN PIPE-TAG ROW ---
-        if cat == "Pipe Tags" and val == "Remove Tag":
-            # Figure out who the host pipe was (while the tag still exists)
-            tag_id = ElementId(int(str(row.Cells["Id"].Value)))
-            self.dataGrid.SelectionChanged -= self.on_row_selected
-            try:
-                tag_elem = doc.GetElement(tag_id)
-                host_id = None
-                if tag_elem:
-                    if hasattr(tag_elem, "GetTaggedElementIds"):
-                        ids = tag_elem.GetTaggedElementIds()
-                        if ids and ids.Count:
-                            # if this is a LinkedElementId, use its HostElementId
+            # --------------------------
+            # REMOVE TAG (Pipe Tags)
+            # --------------------------
+            elif cat == "Pipe Tags" and val == "Remove Tag":
+                tag_id = ElementId(int(str(row.Cells["Id"].Value)))
+                self.dataGrid.SelectionChanged -= self.on_row_selected
+                try:
+                    tag_elem = doc.GetElement(tag_id)
+                    host_id = None
+                    if tag_elem:
+                        ids = (
+                            tag_elem.GetTaggedElementIds()
+                            if hasattr(tag_elem, "GetTaggedElementIds")
+                            else [tag_elem.TaggedElementId]
+                        )
+                        if ids and len(ids):
                             rid = ids[0]
                             host_id = (
                                 rid.HostElementId.IntegerValue
                                 if hasattr(rid, "HostElementId")
                                 else rid.IntegerValue
                             )
-                    elif hasattr(tag_elem, "TaggedElementId"):
-                        rid = tag_elem.TaggedElementId
-                        host_id = (
-                            rid.HostElementId.IntegerValue
-                            if hasattr(rid, "HostElementId")
-                            else rid.IntegerValue
-                        )
 
-                # Delete the Tag
-                tr = Transaction(doc, "Remove Pipe-Tag")
-                tr.Start()
-                doc.Delete(tag_id)
-                tr.Commit()
+                    tr = Transaction(doc, "Remove Pipe-Tag")
+                    tr.Start()
+                    doc.Delete(tag_id)
+                    tr.Commit()
 
-                # Remove the tags row
-                self.dataGrid.Rows.RemoveAt(e.RowIndex)
+                    self.dataGrid.Rows.RemoveAt(row.Index)
 
-                # Now find the pipe's row and flip it back to "Add/Place Tag"
-                if host_id:
-                    for i in range(self.dataGrid.Rows.Count):
-                        pr = self.dataGrid.Rows[i]
-                        if int(str(pr.Cells["Id"].Value)) == host_id and pr.Cells[
-                            "Category"
-                        ].Value in ("Pipes", "Pipe Fittings"):
-                            pr.Cells["TagStatus"].Value = "Add/Place Tag"
-                            pr.Cells["TagStatus"].ReadOnly = False
-                            break
-            finally:
-                # rehook highlight
-                self.dataGrid.SelectionChanged += self.on_row_selected
-            return
-
-        # --- PIPE FITTINGS ---
-        elif cat == "Pipe Fittings" and val == "Add/Place Tag":
-            # from Autodesk.Revit.DB import IndependentTag, Transaction, Reference
-            elem_id = ElementId(int(str(row.Cells["Id"].Value)))
-            fitting_elem = doc.GetElement(elem_id)
-
-            t3 = Transaction(doc, "Add Fitting Tag")
-            t3.Start()
-            bbox = fitting_elem.get_BoundingBox(uidoc.ActiveView)
-            if bbox:
-                center = XYZ(
-                    (bbox.Min.X + bbox.Max.X) / 2.0,
-                    (bbox.Min.Y + bbox.Max.Y) / 2.0,
-                    (bbox.Min.Z + bbox.Max.Z) / 2.0,
-                )
-                ref = Reference(fitting_elem)
-                new_tag = IndependentTag.Create(
-                    doc,
-                    doc.ActiveView.Id,
-                    ref,
-                    True,
-                    TagMode.TM_ADDBY_CATEGORY,
-                    TagOrientation.Horizontal,
-                    center,
-                )
-            t3.Commit()
-
-            row.Cells["TagStatus"].Value = "Yes"
-
-            new_tag_elem = doc.GetElement(new_tag.Id)
-            if new_tag_elem:
-                tag_dict = {
-                    "Id": str(new_tag_elem.Id),
-                    "Category": "Pipe Tags",
-                    "Name": new_tag_elem.Name or "",
-                    "DefaultCode": fitting_elem.LookupParameter("Comments").AsString()
-                    or "",
-                    "NewCode": row.Cells["NewCode"].Value,
-                    "OutsideDiameter": row.Cells["OutsideDiameter"].Value,
-                    "Length": row.Cells["Length"].Value,
-                    "TagStatus": "Yes",
-                }
-                new_row_idx = self.dataGrid.Rows.Add()
-                new_row = self.dataGrid.Rows[new_row_idx]
-                for key, v in tag_dict.items():
-                    new_row.Cells[key].Value = v
-                new_row.Cells["TagStatus"].Value = "Remove Tag"
-                new_row.Cells["TagStatus"].ReadOnly = True
+                    if host_id:
+                        for i in range(self.dataGrid.Rows.Count):
+                            pr = self.dataGrid.Rows[i]
+                            if (
+                                int(str(pr.Cells["Id"].Value)) == host_id
+                                and pr.Cells["Category"].Value == "Pipes"
+                            ):
+                                pr.Cells["TagStatus"].Value = "Add/Place Tag"
+                                pr.Cells["TagStatus"].ReadOnly = False
+                                break
+                finally:
+                    self.dataGrid.SelectionChanged += self.on_row_selected
 
     def okButton_Click(self, sender, event):
         updated_data = []
