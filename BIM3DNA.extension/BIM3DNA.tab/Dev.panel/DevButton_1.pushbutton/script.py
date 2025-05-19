@@ -1420,6 +1420,41 @@ for master, is_pipe, idx in tasks:
     dup_id = master.Duplicate(ViewDuplicateOption.Duplicate)
     dup = doc.GetElement(dup_id)
     dup.Name = "{} {}".format(master.Name, sheet_code)
+    # Convert 1.5 mm to internal Revit feet (1 foot = 304.8 mm)
+    target_font = "Arial"
+    target_mm = 1.5
+    target_ft = target_mm / 304.8
+
+    # Search existing text types
+    text_types = FilteredElementCollector(doc).OfClass(TextNoteType).ToElements()
+    matching_type = None
+    for tt in text_types:
+        try:
+            font = tt.get_Parameter(BuiltInParameter.TEXT_FONT).AsString()
+            size = tt.get_Parameter(BuiltInParameter.TEXT_SIZE).AsDouble()
+            if font == target_font and abs(size - target_ft) < 0.001:
+                matching_type = tt
+                break
+        except:
+            continue
+
+    # If not found, duplicate the first one and create the target
+    if not matching_type and text_types:
+        source_type = text_types[0]
+        t = Transaction(doc, "Create Arial 1.5mm Text Type")
+        t.Start()
+        new_type_id = source_type.Duplicate("Arial 1.5mm")
+        new_type = doc.GetElement(new_type_id)
+        new_type.get_Parameter(BuiltInParameter.TEXT_FONT).Set(target_font)
+        new_type.get_Parameter(BuiltInParameter.TEXT_SIZE).Set(target_ft)
+        t.Commit()
+        matching_type = new_type
+
+    # Apply it to the schedule view if available
+    if matching_type:
+        dup.TitleTextTypeId = matching_type.Id
+        dup.HeaderTextTypeId = matching_type.Id
+        dup.BodyTextTypeId = matching_type.Id
 
     sd = dup.Definition
     # --- if it's a Leidingen (pipes) schedule, change Length field to millimeters ---
