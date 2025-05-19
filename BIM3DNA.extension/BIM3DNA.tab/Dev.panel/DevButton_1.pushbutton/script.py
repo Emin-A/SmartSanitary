@@ -439,6 +439,15 @@ class ElementEditorForm(Form):
         self.dataGrid.Columns.Add(self.colArticle)
         self.dataGrid.Columns.Add(self.colTagStatus)
 
+        # 1. Text Note Code Input with Example Text
+        self.txtTextNoteCode = TextBox()
+        self.txtTextNoteCode.Width = 150
+        self.txtTextNoteCode.ForeColor = Color.Gray
+        self.txtTextNoteCode.Text = "prefab 5.5.5"
+        self.txtTextNoteCode.GotFocus += self.clear_placeholder
+        self.txtTextNoteCode.LostFocus += self.restore_placeholder
+        self.buttonPanel.Controls.Add(self.txtTextNoteCode)
+
         # --- 4. Buttons inside buttonPanel
         self.btnPlaceTextNote = Button()
         self.btnPlaceTextNote.Text = "Place Text Note"
@@ -446,21 +455,17 @@ class ElementEditorForm(Form):
         self.btnPlaceTextNote.Click += self.btnPlaceTextNote_Click
         self.buttonPanel.Controls.Add(self.btnPlaceTextNote)
 
-        self.txtTextNoteCode = TextBox()
-        self.txtTextNoteCode.Width = 150
-        self.buttonPanel.Controls.Add(self.txtTextNoteCode)
+        self.btnBulkTags = Button()
+        self.btnBulkTags.Text = "Add/Remove Tags"
+        self.btnBulkTags.Width = 150
+        self.btnBulkTags.Click += self.bulkAddRemoveTags_Click
+        self.buttonPanel.Controls.Add(self.btnBulkTags)
 
         self.btnAutoFill = Button()
         self.btnAutoFill.Text = "Auto-Fill Tag Codes"
         self.btnAutoFill.Width = 150
         self.btnAutoFill.Click += self.autoFillPipeTagCodes
         self.buttonPanel.Controls.Add(self.btnAutoFill)
-
-        self.btnBulkTags = Button()
-        self.btnBulkTags.Text = "Add/Remove Tags"
-        self.btnBulkTags.Width = 150
-        self.btnBulkTags.Click += self.bulkAddRemoveTags_Click
-        self.buttonPanel.Controls.Add(self.btnBulkTags)
 
         self.btnOK = Button()
         self.btnOK.Text = "OK"
@@ -526,6 +531,16 @@ class ElementEditorForm(Form):
                 row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
             elif cat == "Text Notes":
                 row.DefaultCellStyle.BackColor = Color.LightGray
+
+    def clear_placeholder(self, sender, event):
+        if self.txtTextNoteCode.Text == "prefab 5.5.5":
+            self.txtTextNoteCode.Text = ""
+            self.txtTextNoteCode.ForeColor = Color.Black
+
+    def restore_placeholder(self, sender, event):
+        if self.txtTextNoteCode.Text.strip() == "":
+            self.txtTextNoteCode.Text = "prefab 5.5.5"
+            self.txtTextNoteCode.ForeColor = Color.Gray
 
     def bulkAddRemoveTags_Click(self, sender, event):
         rows_to_process = []
