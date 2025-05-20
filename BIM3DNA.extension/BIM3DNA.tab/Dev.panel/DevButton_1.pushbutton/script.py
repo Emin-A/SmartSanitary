@@ -1140,6 +1140,8 @@ result = show_element_editor(filtered_elements, region_elements=gathered_element
 if result is None:
     sys.exit("Operation cancelled by the user.")
 
+uidoc.Selection.SetElementIds(List[ElementId]())
+
 baseCode = result["TextNote"]
 for eData in result["Elements"]:
     if eData["Category"] == "Pipe Fittings":
