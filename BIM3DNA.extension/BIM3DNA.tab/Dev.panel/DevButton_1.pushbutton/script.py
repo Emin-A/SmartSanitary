@@ -1366,9 +1366,32 @@ for base in {base}:  # e.g. 5.1.1
     sheet.SheetNumber = base
     sheet.Name = "Prefab " + base
 
-    o = sheet.Outline
-    center = XYZ((o.Min.U + o.Max.U) / 2, (o.Min.V + o.Max.V) / 2, 0)
-    Viewport.Create(doc, sheet.Id, new_view.Id, center)
+    # Get placed title block instance and its bounding box
+    titleblock_inst = next(
+        (
+            e
+            for e in FilteredElementCollector(doc, sheet.Id)
+            .OfClass(FamilyInstance)
+            .ToElements()
+            if e.Symbol.Id == title_block.Id
+        ),
+        None,
+    )
+
+    tb_bb = titleblock_inst.get_BoundingBox(sheet) if titleblock_inst else None
+    if not tb_bb:
+        MessageBox.Show("Could not retrieve title block bounding box.", "Error")
+        sys.exit()
+
+    # Center of the actual printable area (inner region of the title block)
+    tb_center = XYZ(
+        (tb_bb.Min.X + tb_bb.Max.X) / 2,
+        (tb_bb.Min.Y + tb_bb.Max.Y) / 2,
+        0,
+    )
+
+    # Place the main floor plan view centered in title block region
+    Viewport.Create(doc, sheet.Id, new_view.Id, tb_center)
 
     # ------------------------------------------
     # 4) Create & place 3D callout
@@ -1418,13 +1441,9 @@ for base in {base}:  # e.g. 5.1.1
     if section_box:
         section_box.Enabled = True
 
-    # 4. position the 3D viewport on the sheet (to the right of the floor plan)
-    o = sheet.Outline
-    # push it over 1/3 of the sheet width, and up a bit
-    u = o.Min.U + (o.Max.U - o.Min.U) * 0.65
-    v = o.Min.V + (o.Max.V - o.Min.V) * 0.35
-
-    Viewport.Create(doc, sheet.Id, view3d.Id, XYZ(u, v, 0))
+    viewport_spacing = 0.25  # adjust as needed for spacing
+    v3d_pos = XYZ(tb_center.X + viewport_spacing, tb_center.Y + viewport_spacing, 0)
+    Viewport.Create(doc, sheet.Id, view3d.Id, v3d_pos)
 
     t3.Commit()
 
@@ -1592,11 +1611,7 @@ move_tx = Transaction(doc, "Center Views and Schedules on Sheet")
 move_tx.Start()
 
 # 1. Calculate center of the sheet
-sheet_center = XYZ(
-    (sheet.Outline.Min.U + sheet.Outline.Max.U) / 2,
-    (sheet.Outline.Min.V + sheet.Outline.Max.V) / 2,
-    0,
-)
+sheet_center = tb_center
 
 # 2. Find all viewports on the sheet and center them
 viewports = FilteredElementCollector(doc, sheet.Id).OfClass(Viewport).ToElements()
