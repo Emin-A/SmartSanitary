@@ -123,8 +123,8 @@ def auto_fix():
 
                     # Multi T-stuck logic
                     if "multi T-stuck" in family_name:
-                        set_yesno_param(other, "kort_verloop (klein)", True)
-                        set_yesno_param(other, "kort_verloop (groot)", True)
+                        set_yesno_param(other, "kort_verloop (kleinste)", True)
+                        set_yesno_param(other, "kort_verloop (grootste)", True)
                         set_yesno_param(other, "reducer_eccentric", True)
 
                         if dir_label in ["Right", "Down"]:
@@ -142,8 +142,8 @@ def auto_fix():
 
         elif "multireducer" in fname:
             for pname in [
-                "kort_verloop (klein)",
-                "kort_verloop (groot)",
+                "kort_verloop (kleinste)",
+                "kort_verloop (grootste)",
                 "switch_excentriciteit",
                 "reducer_eccentric",
             ]:
