@@ -66,22 +66,22 @@ view = doc.ActiveView
 # Helper Functions
 
 
-def is_pipe_of_type(pipe, name, min_diam):
-    return pipe.Diameter * 304.8 >= min_diam and name in pipe.Name
-
-
-def is_fitting_family(fitting, family_start):
-    return fitting.Symbol.Family.Name.startswith(family_start)
+def is_pipe_of_type(pipe, name, min_diam_mm):
+    return name in pipe.Name and pipe.Diameter * 304.8 >= min_diam_mm
 
 
 def get_pipe_direction(pipe):
-    curve = pipe.Location.Curve
-    direction = curve.GetEndPoint(1) - curve.GetEndPoint(0)
-    return direction.Normalize()
+    try:
+        curve = pipe.Location.Curve
+        vec = curve.GetEndPoint(1) - curve.GetEndPoint(0)
+        return vec.Normalize()
+    except:
+        return None
 
 
 def classify_direction(vec):
-    # Floor plan X-Y axis
+    if vec is None:
+        return "Unknown"
     angle = math.degrees(math.atan2(vec.Y, vec.X))
     if -45 <= angle < 45:
         return "Right"
@@ -94,10 +94,22 @@ def classify_direction(vec):
     return "Unknown"
 
 
-def set_yesno_param(elem, name, on=True):
-    p = elem.LookupParameter(name)
+def set_yesno_param(elem, param_name, on=True):
+    p = elem.LookupParameter(param_name)
     if p and p.StorageType == StorageType.Integer:
-        p.Set(1 if on else 0)
+        try:
+            p.Set(1 if on else 0)
+        except:
+            pass  # Skip if cannot be set
+
+
+def get_connected_pipe_direction(fitting, main_pipe):
+    for c in fitting.MEPModel.ConnectorManager.Connectors:
+        for r in c.AllRefs:
+            other = r.Owner
+            if isinstance(other, Pipe) and other.Id != main_pipe.Id:
+                return get_pipe_direction(other)
+    return None
 
 
 # Core Logic
@@ -113,28 +125,32 @@ def auto_fix():
         if not is_pipe_of_type(pipe, "NLRS_52_PI_PE buis", 160):
             continue
 
-        dir_label = classify_direction(get_pipe_direction(pipe))
-
-        for conn in pipe.ConnectorManager.Connectors:
+        connectors = pipe.ConnectorManager.Connectors
+        for conn in connectors:
             for ref in conn.AllRefs:
                 other = ref.Owner
-                if isinstance(other, FamilyInstance):
-                    family_name = other.Symbol.Family.Name
 
-                    # Multi T-stuck logic
-                    if "multi T-stuck" in family_name:
-                        set_yesno_param(other, "kort_verloop (kleinste)", True)
-                        set_yesno_param(other, "kort_verloop (grootste)", True)
-                        set_yesno_param(other, "reducer_eccentric", True)
+                # Process multi T-stuk
+                if (
+                    isinstance(other, FamilyInstance)
+                    and "multi T-stuk" in other.Symbol.Family.Name
+                ):
+                    dir_vec = get_connected_pipe_direction(other, pipe)
+                    dir_label = classify_direction(dir_vec)
 
-                        if dir_label in ["Right", "Down"]:
-                            set_yesno_param(other, "switch_excentriciteit", True)
-                        else:
-                            set_yesno_param(other, "switch_excentriciteit", False)
+                    set_yesno_param(other, "kort_verloop (kleinste)", True)
+                    set_yesno_param(other, "kort_verloop (grootste)", True)
+                    set_yesno_param(other, "reducer_eccentric", True)
 
-    # Scan fittings for multibocht and multireducer
+                    if dir_label in ["Right", "Down"]:
+                        set_yesno_param(other, "switch_excentriciteit", True)
+                    else:
+                        set_yesno_param(other, "switch_excentriciteit", False)
+                    print("✅ Matched T-stuk:", other.Id, "→", dir_label)
+
+    # Process fittings for elbows and reducers
     for f in fittings:
-        fname = f.Symbol.Family.Name
+        fname = f.Symbol.Family.Name.lower()
 
         if "multibocht" in fname:
             set_yesno_param(f, "2x45°", False)
