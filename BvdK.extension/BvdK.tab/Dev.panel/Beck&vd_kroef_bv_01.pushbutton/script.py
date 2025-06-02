@@ -533,28 +533,38 @@ class ElementEditorForm(Form):
 
             # TagStatus logic
             cat = ed["Category"]
-            status = ed["TagStatus"]
+            name = ed["Name"]
+
             if cat == "Pipes":
-                if status == "Yes":
+                if ed["TagStatus"] == "Yes":
                     row.Cells["TagStatus"].Value = "Remove Tag"
                 else:
                     row.Cells["TagStatus"].Value = "Add/Place Tag"
             elif cat == "Pipe Tags":
                 row.Cells["TagStatus"].Value = "Remove Tag"
-            elif cat == "Pipe Fittings":
-                row.Cells["TagStatus"].Value = ""
-                row.Cells["TagStatus"].ReadOnly = True
-            else:
-                row.Cells["TagStatus"].Value = ""
+            if cat == "Pipe Fittings":
+                if "Liggend" in name and "DN/OD" in name:
+                    row.Cells["TagStatus"].Value = "Flip T-stuk"
+                    row.Cells["TagStatus"].ReadOnly = False
+                    row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
+                else:
+                    row.Cells["TagStatus"].Value = ""
+                    row.Cells["TagStatus"].ReadOnly = True
+                    row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
 
-            if cat == "Pipes":
+            elif cat == "Pipes":
+                row.Cells["TagStatus"].Value = (
+                    "Remove Tag" if ed["TagStatus"] == "Yes" else "Add/Place Tag"
+                )
                 row.DefaultCellStyle.BackColor = Color.LightBlue
             elif cat == "Pipe Tags":
+                row.Cells["TagStatus"].Value = "Remove Tag"
                 row.DefaultCellStyle.BackColor = Color.LightGreen
-            elif cat == "Pipe Fittings":
-                row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
             elif cat == "Text Notes":
+                row.Cells["TagStatus"].Value = ""
                 row.DefaultCellStyle.BackColor = Color.LightGray
+            else:
+                row.Cells["TagStatus"].Value = ""
 
     def auto_fix_inline(self):
         updated = 0
@@ -574,28 +584,58 @@ class ElementEditorForm(Form):
                 name = elem.Name
                 print("Checking:", elem.Id, "| Name:", name)
 
+                # 1. Fix concentric reducers
+                reducer_fixed = False
                 p_warn = elem.LookupParameter("waarschuwing")
                 warning = p_warn.AsString() if p_warn else ""
                 print(" -> Warning:", warning)
 
-                if not warning or "concentric" not in warning.lower():
-                    skipped += 1
-                    continue
+                has_concentric_warning = warning and "concentric" in warning.lower()
 
-                param_map = {
-                    "kort_verloop (kleinste)": True,
-                    "kort_verloop (grootste)": True,
-                    "reducer_eccentric": True,
-                    "switch_excentriciteit": False,
-                }
-                t = Transaction(doc, "Fix Reducer")
-                t.Start()
-                for pname, value in param_map.items():
-                    p = elem.LookupParameter(pname)
-                    if p and p.StorageType == StorageType.Integer:
-                        p.Set(1 if value else 0)
-                t.Commit()
-                updated += 1
+                has_reducer_params = any(
+                    elem.LookupParameter(pn)
+                    for pn in [
+                        "kort_verloop (kleinste)",
+                        "kort_verloop (grootste)",
+                        "reducer_eccentric",
+                        "switch_excentriciteit",
+                    ]
+                )
+                if has_concentric_warning and has_reducer_params:
+                    param_map = {
+                        "kort_verloop (kleinste)": True,
+                        "kort_verloop (grootste)": True,
+                        "reducer_eccentric": True,
+                        "switch_excentriciteit": False,
+                    }
+                    t = Transaction(doc, "Fix Reducer")
+                    t.Start()
+                    for pname, value in param_map.items():
+                        p = elem.LookupParameter(pname)
+                        if p and p.StorageType == StorageType.Integer:
+                            p.Set(1 if value else 0)
+                    t.Commit()
+                    print(" -> Reducer fixed.")
+                    updated += 1
+                    reducer_fixed = True
+
+                # 2. Turn OFF 2x45°
+                p_bend = elem.LookupParameter("2x45°")
+                if p_bend and p_bend.StorageType == StorageType.Integer:
+                    if p_bend.AsInteger() == 1:
+                        print(" -> Turning OFF 2x45°")
+                        t = Transaction(doc, "Turn off 2x45°")
+                        t.Start()
+                        p_bend.Set(0)
+                        t.Commit()
+                        updated += 1
+                    else:
+                        print(" -> 2x45° already OFF")
+                        if not reducer_fixed:
+                            skipped += 1
+                elif not reducer_fixed:
+                    skipped += 1
+
             except Exception as ex:
                 print("Exception while processing:", ex)
                 skipped += 1
@@ -868,10 +908,29 @@ class ElementEditorForm(Form):
             cat = row.Cells["Category"].Value
             val = row.Cells["TagStatus"].Value
 
+            if cat == "Pipe Fittings" and val == "Flip T-stuk":
+                try:
+                    host_id = int(str(row.Cells["Id"].Value))
+                    elem = doc.GetElement(ElementId(host_id))
+                    if elem:
+                        p = elem.LookupParameter("switch_excentriciteit")
+                        if p and p.StorageType == StorageType.Integer:
+                            current = p.AsInteger()
+                            t = Transaction(doc, "Flip T-stuk (switch_excentriciteit)")
+                            t.Start()
+                            p.Set(0 if current == 1 else 1)
+                            t.Commit()
+                            print(
+                                "🔄 Flipped T-stuk (switch_excentriciteit = %s): %s"
+                                % (str(not current), str(elem.Id))
+                            )
+                except Exception as ex:
+                    print("❌ Failed to flip T-stuk using switch_excentriciteit:", ex)
+
             # ----------------------
             # ADD/REMOVE TAG (Pipes)
             # ----------------------
-            if cat == "Pipes":
+            elif cat == "Pipes":
                 host_id = int(str(row.Cells["Id"].Value))
                 host = doc.GetElement(ElementId(host_id))
 
