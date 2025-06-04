@@ -534,37 +534,49 @@ class ElementEditorForm(Form):
             # TagStatus logic
             cat = ed["Category"]
             name = ed["Name"]
+            print(">> Pipe Fitting Name:", name)
 
             if cat == "Pipes":
                 if ed["TagStatus"] == "Yes":
                     row.Cells["TagStatus"].Value = "Remove Tag"
                 else:
                     row.Cells["TagStatus"].Value = "Add/Place Tag"
-            elif cat == "Pipe Tags":
-                row.Cells["TagStatus"].Value = "Remove Tag"
-            if cat == "Pipe Fittings":
-                if "Liggend" in name and "DN/OD" in name:
-                    row.Cells["TagStatus"].Value = "Flip T-stuk"
-                    row.Cells["TagStatus"].ReadOnly = False
-                    row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
-                else:
-                    row.Cells["TagStatus"].Value = ""
-                    row.Cells["TagStatus"].ReadOnly = True
-                    row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
-
-            elif cat == "Pipes":
-                row.Cells["TagStatus"].Value = (
-                    "Remove Tag" if ed["TagStatus"] == "Yes" else "Add/Place Tag"
-                )
                 row.DefaultCellStyle.BackColor = Color.LightBlue
+
             elif cat == "Pipe Tags":
                 row.Cells["TagStatus"].Value = "Remove Tag"
                 row.DefaultCellStyle.BackColor = Color.LightGreen
+
             elif cat == "Text Notes":
                 row.Cells["TagStatus"].Value = ""
                 row.DefaultCellStyle.BackColor = Color.LightGray
-            else:
-                row.Cells["TagStatus"].Value = ""
+
+            if cat == "Pipe Fittings":
+                elem = doc.GetElement(ElementId(int(ed["Id"])))
+                family_name = ""
+                if isinstance(elem, FamilyInstance):
+                    symbol = elem.Symbol
+                    if symbol and symbol.Family:
+                        family_name = symbol.Family.Name.lower()
+
+                name_lc = name.lower()
+
+                if "var. dn/od" in name_lc:
+                    if "multibocht" in name_lc or "multibocht" in family_name:
+                        row.Cells["TagStatus"].Value = "Flip 2x45°"
+                        row.Cells["TagStatus"].ReadOnly = False
+                    elif "liggend" in name_lc or "liggend" in family_name:
+                        row.Cells["TagStatus"].Value = "Flip T-stuk"
+                        row.Cells["TagStatus"].ReadOnly = False
+                        # row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
+                    else:
+                        row.Cells["TagStatus"].Value = ""
+                        row.Cells["TagStatus"].ReadOnly = True
+                else:
+                    row.Cells["TagStatus"].Value = ""
+                    row.Cells["TagStatus"].ReadOnly = True
+
+                row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
 
     def auto_fix_inline(self):
         updated = 0
@@ -656,6 +668,38 @@ class ElementEditorForm(Form):
                 elem = doc.GetElement(ElementId(eid))
                 if not elem:
                     continue
+
+                name = row.Cells["Name"].Value
+                tag_status = row.Cells["TagStatus"].Value
+
+                # Flip 2x45° logic
+                if tag_status == "Flip 2x45°":
+                    print(">> Activating Flip 2x45° for:", name)
+
+                    if isinstance(elem, FamilyInstance):
+                        try:
+                            bend_param = elem.LookupParameter("bend_visible")
+                            preserve_param = elem.LookupParameter(
+                                "bend_visible_preserve"
+                            )
+
+                            if (
+                                bend_param
+                                and bend_param.StorageType == StorageType.Integer
+                            ):
+                                bend_param.Set(0)
+                                print(" -> bend_visible OFF")
+
+                            if (
+                                preserve_param
+                                and preserve_param.StorageType == StorageType.Integer
+                            ):
+                                preserve_param.Set(0)
+                                print(" -> bend_visible_preserve OFF")
+
+                            print("✅ Flip 2x45° applied to:", eid)
+                        except Exception as e:
+                            print("⚠️ Failed to flip 2x45° for", eid, "Error:", str(e))
 
                 # Re-read parameters from Revit
                 p_warn = elem.LookupParameter("waarschuwing")
