@@ -971,6 +971,40 @@ class ElementEditorForm(Form):
                 except Exception as ex:
                     print("❌ Failed to flip T-stuk using switch_excentriciteit:", ex)
 
+            elif cat == "Pipe Fittings" and val == "Flip 2x45°":
+                try:
+                    host_id = int(str(row.Cells["Id"].Value))
+                    elem = doc.GetElement(ElementId(host_id))
+                    if elem:
+                        param = elem.LookupParameter("2x45°")
+                        if param and param.StorageType == StorageType.Integer:
+                            current_val = param.AsInteger()
+
+                            t = Transaction(doc, "Toggle 2x45°")
+                            t.Start()
+                            param.Set(0 if current_val == 1 else 1)
+                            t.Commit()
+
+                            if current_val == 1:
+                                row.Cells["Bend45"].Value = "No"
+                            else:
+                                row.Cells["Bend45"].Value = "Yes"
+
+                            print(
+                                "✅ Toggled 2x45° to",
+                                "OFF" if current_val == 1 else "ON",
+                                "for:",
+                                host_id,
+                            )
+                        else:
+                            print(
+                                "⚠️ Parameter '2x45°' not found or not boolean:", host_id
+                            )
+                    else:
+                        print("⚠️ Could not get element from ID:", host_id)
+                except Exception as ex:
+                    print("❌ Failed to flip 2x45°:", ex)
+
             # ----------------------
             # ADD/REMOVE TAG (Pipes)
             # ----------------------
