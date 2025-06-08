@@ -128,6 +128,14 @@ app = __revit__.Application
 uidoc = __revit__.ActiveUIDocument
 doc = __revit__.ActiveUIDocument.Document
 
+VERBOSE = False
+
+
+def debug(*args):
+    if VERBOSE:
+        print(" ".join([str(a) for a in args]))
+
+
 # ==================================================
 # Helper Functions
 # ==================================================
@@ -536,7 +544,7 @@ class ElementEditorForm(Form):
             name = ed["Name"]
             name_lc = name.lower()
             warning_val = row.Cells["Warning"].Value or ""
-            print(">> Pipe Fitting Name:", name)
+            debug(">> Pipe Fitting Name:", name)
 
             if cat == "Pipes":
                 if ed["TagStatus"] == "Yes":
@@ -594,13 +602,13 @@ class ElementEditorForm(Form):
                     continue
 
                 name = elem.Name
-                print("Checking:", elem.Id, "| Name:", name)
+                debug("Checking:", elem.Id, "| Name:", name)
 
                 # 1. Fix concentric reducers
                 reducer_fixed = False
                 p_warn = elem.LookupParameter("waarschuwing")
                 warning = p_warn.AsString() if p_warn else ""
-                print(" -> Warning:", warning)
+                debug(" -> Warning:", warning)
 
                 has_concentric_warning = warning and "concentric" in warning.lower()
 
@@ -627,7 +635,7 @@ class ElementEditorForm(Form):
                         if p and p.StorageType == StorageType.Integer:
                             p.Set(1 if value else 0)
                     t.Commit()
-                    print(" -> Reducer fixed.")
+                    debug(" -> Reducer fixed.")
                     updated += 1
                     reducer_fixed = True
 
@@ -635,14 +643,14 @@ class ElementEditorForm(Form):
                 p_bend = elem.LookupParameter("2x45°")
                 if p_bend and p_bend.StorageType == StorageType.Integer:
                     if p_bend.AsInteger() == 1:
-                        print(" -> Turning OFF 2x45°")
+                        debug(" -> Turning OFF 2x45°")
                         t = Transaction(doc, "Turn off 2x45°")
                         t.Start()
                         p_bend.Set(0)
                         t.Commit()
                         updated += 1
                     elif not reducer_fixed:
-                        print(" -> 2x45° already OFF")
+                        debug(" -> 2x45° already OFF")
                         skipped += 1
                 elif not reducer_fixed:
                     skipped += 1
@@ -672,7 +680,7 @@ class ElementEditorForm(Form):
                                                 vertical_diam = d_mm
                                                 break
                                 except Exception as ex:
-                                    print(
+                                    debug(
                                         "⚠️ Failed to resolve vertical pipe diameter:",
                                         ex,
                                     )
@@ -688,7 +696,7 @@ class ElementEditorForm(Form):
                                     t.Start()
                                     if vertical_diam > 100:
                                         bend_param.Set(1)
-                                        print(
+                                        debug(
                                             "✅ 2x45° turned ON for:",
                                             elem.Id,
                                             "| Ø =",
@@ -696,7 +704,7 @@ class ElementEditorForm(Form):
                                         )
                                     else:
                                         bend_param.Set(0)
-                                        print(
+                                        debug(
                                             "✅ 2x45° turned OFF for:",
                                             elem.Id,
                                             "| Ø =",
@@ -705,7 +713,7 @@ class ElementEditorForm(Form):
                                     t.Commit()
                                     updated += 1
                             except Exception as ex:
-                                print("❌ Failed to set 2x45° on elbow:", ex)
+                                debug("❌ Failed to set 2x45° on elbow:", ex)
 
                     # Auto toggle reducer_eccentric for multireducer going UP
                     elif "multireducer_geb" in fam_name:
@@ -736,16 +744,16 @@ class ElementEditorForm(Form):
                                     t.Start()
                                     reducer_param.Set(0)
                                     t.Commit()
-                                    print(
+                                    debug(
                                         "✅ Turned OFF reducer_eccentric for vertical-up multireducer:",
                                         elem.Id,
                                     )
                                     updated += 1
                         except Exception as ex:
-                            print("❌ Failed to auto-toggle reducer_eccentric:", ex)
+                            debug("❌ Failed to auto-toggle reducer_eccentric:", ex)
 
             except Exception as ex:
-                print("Exception while processing:", ex)
+                debug("Exception while processing:", ex)
                 skipped += 1
 
         return updated, skipped
@@ -770,7 +778,7 @@ class ElementEditorForm(Form):
 
                 # Flip 2x45° logic (manual logic reused)
                 if tag_status == "Flip 2x45°":
-                    print(">> Activating Flip 2x45° for:", name)
+                    debug(">> Activating Flip 2x45° for:", name)
                     if isinstance(elem, FamilyInstance):
                         try:
                             bend_param = elem.LookupParameter("bend_visible")
@@ -783,18 +791,18 @@ class ElementEditorForm(Form):
                                 and bend_param.StorageType == StorageType.Integer
                             ):
                                 bend_param.Set(0)
-                                print(" -> bend_visible OFF")
+                                debug(" -> bend_visible OFF")
 
                             if (
                                 preserve_param
                                 and preserve_param.StorageType == StorageType.Integer
                             ):
                                 preserve_param.Set(0)
-                                print(" -> bend_visible_preserve OFF")
+                                debug(" -> bend_visible_preserve OFF")
 
-                            print("✅ Flip 2x45° applied to:", eid)
+                            debug("✅ Flip 2x45° applied to:", eid)
                         except Exception as e:
-                            print("⚠️ Failed to flip 2x45° for", eid, "Error:", str(e))
+                            debug("⚠️ Failed to flip 2x45° for", eid, "Error:", str(e))
 
                 # New: Vertical Reducer Detection & Fix
                 name_lc = name.lower()
@@ -803,11 +811,11 @@ class ElementEditorForm(Form):
                         is_vertical = False
                         if hasattr(elem, "HandOrientation"):
                             dir = elem.HandOrientation
-                            print("Orientation vector (HandOrientation):", dir)
+                            debug("Orientation vector (HandOrientation):", dir)
                             if abs(dir.Z) > 0.9:
                                 is_vertical = True
 
-                        print(
+                        debug(
                             "Checking vertical reducer:",
                             eid,
                             "| is_vertical =",
@@ -823,16 +831,16 @@ class ElementEditorForm(Form):
 
                             if reducer_param and reducer_param.AsInteger() == 1:
                                 reducer_param.Set(0)
-                                print(" -> reducer_eccentric turned OFF")
+                                debug(" -> reducer_eccentric turned OFF")
 
                             if geom_param and geom_param.AsInteger() == 1:
                                 geom_param.Set(0)
-                                print(" -> geom_exc turned OFF")
+                                debug(" -> geom_exc turned OFF")
 
                             t.Commit()
-                            print("✅ Fixed vertical reducer for:", eid)
+                            debug("✅ Fixed vertical reducer for:", eid)
                     except Exception as ve:
-                        print(
+                        debug(
                             "❌ Error fixing vertical reducer for:", eid, "Error:", ve
                         )
 
@@ -989,7 +997,7 @@ class ElementEditorForm(Form):
 
             if cat == "Pipe Fittings" and isinstance(elem, FamilyInstance):
                 fam_name = elem.Symbol.Family.Name.lower()
-                print("✅ Family name:", fam_name)
+                debug("✅ Family name:", fam_name)
 
                 if "multireducer_geb" in fam_name:
                     row.Cells["TagStatus"].Value = "Flip Reducer"
@@ -1004,7 +1012,7 @@ class ElementEditorForm(Form):
                     row.Cells["TagStatus"].ReadOnly = False
 
         except Exception as ex:
-            print("⚠️ Error resolving Flip button logic:", ex)
+            debug("⚠️ Error resolving Flip button logic:", ex)
 
     def btnPlaceTextNote_Click(self, sender, event):
         text_note_code = self.txtTextNoteCode.Text.strip()
@@ -1125,12 +1133,12 @@ class ElementEditorForm(Form):
                             t.Start()
                             p.Set(0 if current == 1 else 1)
                             t.Commit()
-                            print(
+                            debug(
                                 "🔄 Flipped T-stuk (switch_excentriciteit = %s): %s"
                                 % (str(not current), str(elem.Id))
                             )
                 except Exception as ex:
-                    print("❌ Failed to flip T-stuk using switch_excentriciteit:", ex)
+                    debug("❌ Failed to flip T-stuk using switch_excentriciteit:", ex)
 
             elif cat == "Pipe Fittings" and val == "Flip 2x45°":
                 try:
@@ -1151,20 +1159,20 @@ class ElementEditorForm(Form):
                             else:
                                 row.Cells["Bend45"].Value = "Yes"
 
-                            print(
+                            debug(
                                 "✅ Toggled 2x45° to",
                                 "OFF" if current_val == 1 else "ON",
                                 "for:",
                                 host_id,
                             )
                         else:
-                            print(
+                            debug(
                                 "⚠️ Parameter '2x45°' not found or not boolean:", host_id
                             )
                     else:
-                        print("⚠️ Could not get element from ID:", host_id)
+                        debug("⚠️ Could not get element from ID:", host_id)
                 except Exception as ex:
-                    print("❌ Failed to flip 2x45°:", ex)
+                    debug("❌ Failed to flip 2x45°:", ex)
 
             elif cat == "Pipe Fittings" and val == "Flip Reducer":
                 try:
@@ -1188,14 +1196,14 @@ class ElementEditorForm(Form):
                                 reducer_param.Set(0 if current_val == 1 else 1)
                                 t.Commit()
 
-                                print(
+                                debug(
                                     "✅ Toggled reducer_eccentric to",
                                     "OFF" if current_val == 1 else "ON",
                                     "for:",
                                     host_id,
                                 )
                 except Exception as ex:
-                    print("❌ Failed to toggle redcuer_eccentric:", ex)
+                    debug("❌ Failed to toggle redcuer_eccentric:", ex)
 
             # ----------------------
             # ADD/REMOVE TAG (Pipes)
@@ -1831,7 +1839,7 @@ for base in {base}:  # e.g. 5.1.1
         MessageBox.Show("Could not retrieve title block bounding box.", "Error")
         sys.exit()
 
-    # Center of the actual printable area (inner region of the title block)
+    # Center of the actual debugable area (inner region of the title block)
     tb_center = XYZ(
         (tb_bb.Min.X + tb_bb.Max.X) / 2,
         (tb_bb.Min.Y + tb_bb.Max.Y) / 2,
