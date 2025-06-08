@@ -534,6 +534,8 @@ class ElementEditorForm(Form):
             # TagStatus logic
             cat = ed["Category"]
             name = ed["Name"]
+            name_lc = name.lower()
+            warning_val = row.Cells["Warning"].Value or ""
             print(">> Pipe Fitting Name:", name)
 
             if cat == "Pipes":
@@ -551,7 +553,7 @@ class ElementEditorForm(Form):
                 row.Cells["TagStatus"].Value = ""
                 row.DefaultCellStyle.BackColor = Color.LightGray
 
-            if cat == "Pipe Fittings":
+            elif cat == "Pipe Fittings":
                 elem = doc.GetElement(ElementId(int(ed["Id"])))
                 family_name = ""
                 if isinstance(elem, FamilyInstance):
@@ -559,7 +561,8 @@ class ElementEditorForm(Form):
                     if symbol and symbol.Family:
                         family_name = symbol.Family.Name.lower()
 
-                name_lc = name.lower()
+                row.Cells["TagStatus"].Value = ""
+                row.Cells["TagStatus"].ReadOnly = True
 
                 if "var. dn/od" in name_lc:
                     if "multibocht" in name_lc or "multibocht" in family_name:
@@ -569,12 +572,9 @@ class ElementEditorForm(Form):
                         row.Cells["TagStatus"].Value = "Flip T-stuk"
                         row.Cells["TagStatus"].ReadOnly = False
                         # row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
-                    else:
-                        row.Cells["TagStatus"].Value = ""
-                        row.Cells["TagStatus"].ReadOnly = True
-                else:
-                    row.Cells["TagStatus"].Value = ""
-                    row.Cells["TagStatus"].ReadOnly = True
+                    elif "multireducer" in name_lc or "multireducer_geb" in family_name:
+                        row.Cells["TagStatus"].Value = "Flip Reducer"
+                        row.Cells["TagStatus"].ReadOnly = False
 
                 row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
 
@@ -672,10 +672,9 @@ class ElementEditorForm(Form):
                 name = row.Cells["Name"].Value
                 tag_status = row.Cells["TagStatus"].Value
 
-                # Flip 2x45° logic
+                # Flip 2x45° logic (manual logic reused)
                 if tag_status == "Flip 2x45°":
                     print(">> Activating Flip 2x45° for:", name)
-
                     if isinstance(elem, FamilyInstance):
                         try:
                             bend_param = elem.LookupParameter("bend_visible")
@@ -700,6 +699,46 @@ class ElementEditorForm(Form):
                             print("✅ Flip 2x45° applied to:", eid)
                         except Exception as e:
                             print("⚠️ Failed to flip 2x45° for", eid, "Error:", str(e))
+
+                # New: Vertical Reducer Detection & Fix
+                name_lc = name.lower()
+                if "multireducer_geb" in name_lc and "var. dn/od" in name_lc:
+                    try:
+                        is_vertical = False
+                        if hasattr(elem, "HandOrientation"):
+                            dir = elem.HandOrientation
+                            print("Orientation vector (HandOrientation):", dir)
+                            if abs(dir.Z) > 0.9:
+                                is_vertical = True
+
+                        print(
+                            "Checking vertical reducer:",
+                            eid,
+                            "| is_vertical =",
+                            is_vertical,
+                        )
+
+                        if is_vertical:
+                            reducer_param = elem.LookupParameter("reducer_eccentric")
+                            geom_param = elem.LookupParameter("geom_exc")
+
+                            t = Transaction(doc, "Fix Vertical Reducer")
+                            t.Start()
+
+                            if reducer_param and reducer_param.AsInteger() == 1:
+                                reducer_param.Set(0)
+                                print(" -> reducer_eccentric turned OFF")
+
+                            if geom_param and geom_param.AsInteger() == 1:
+                                geom_param.Set(0)
+                                print(" -> geom_exc turned OFF")
+
+                            t.Commit()
+                            print("✅ Fixed vertical reducer for:", eid)
+                    except Exception as ve:
+                        print(
+                            "❌ Error fixing vertical reducer for:", eid, "Error:", ve
+                        )
 
                 # Re-read parameters from Revit
                 p_warn = elem.LookupParameter("waarschuwing")
@@ -841,9 +880,35 @@ class ElementEditorForm(Form):
         row = self.dataGrid.Rows[idx]
         for k, v in data.items():
             row.Cells[k].Value = v
-        # keep the new tag’s button column read-only
+
+        # Start with default
         row.Cells["TagStatus"].Value = "Remove Tag"
         row.Cells["TagStatus"].ReadOnly = True
+
+        # Try to identify reducer buttons
+        try:
+            cat = data.get("Category", "")
+            eid = int(data.get("Id", "0"))
+            elem = doc.GetElement(ElementId(eid))
+
+            if cat == "Pipe Fittings" and isinstance(elem, FamilyInstance):
+                fam_name = elem.Symbol.Family.Name.lower()
+                print("✅ Family name:", fam_name)
+
+                if "multireducer_geb" in fam_name:
+                    row.Cells["TagStatus"].Value = "Flip Reducer"
+                    row.Cells["TagStatus"].ReadOnly = False
+
+                elif "multibocht" in fam_name:
+                    row.Cells["TagStatus"].Value = "Flip 2x45°"
+                    row.Cells["TagStatus"].ReadOnly = False
+
+                elif "liggend" in fam_name:
+                    row.Cells["TagStatus"].Value = "Flip T-stuk"
+                    row.Cells["TagStatus"].ReadOnly = False
+
+        except Exception as ex:
+            print("⚠️ Error resolving Flip button logic:", ex)
 
     def btnPlaceTextNote_Click(self, sender, event):
         text_note_code = self.txtTextNoteCode.Text.strip()
@@ -1004,6 +1069,37 @@ class ElementEditorForm(Form):
                         print("⚠️ Could not get element from ID:", host_id)
                 except Exception as ex:
                     print("❌ Failed to flip 2x45°:", ex)
+
+            elif cat == "Pipe Fittings" and val == "Flip Reducer":
+                try:
+                    host_id = int(str(row.Cells["Id"].Value))
+                    elem = doc.GetElement(ElementId(host_id))
+
+                    if elem and isinstance(elem, FamilyInstance):
+                        name = row.Cells["Name"].Value or ""
+                        family_name = elem.Symbol.Family.Name.lower()
+
+                        if "multireducer_geb" in family_name:
+                            reducer_param = elem.LookupParameter("reducer_eccentric")
+                            if (
+                                reducer_param
+                                and reducer_param.StorageType == StorageType.Integer
+                            ):
+                                current_val = reducer_param.AsInteger()
+
+                                t = Transaction(doc, "Toggle reducer_eccentric")
+                                t.Start()
+                                reducer_param.Set(0 if current_val == 1 else 1)
+                                t.Commit()
+
+                                print(
+                                    "✅ Toggled reducer_eccentric to",
+                                    "OFF" if current_val == 1 else "ON",
+                                    "for:",
+                                    host_id,
+                                )
+                except Exception as ex:
+                    print("❌ Failed to toggle redcuer_eccentric:", ex)
 
             # ----------------------
             # ADD/REMOVE TAG (Pipes)
