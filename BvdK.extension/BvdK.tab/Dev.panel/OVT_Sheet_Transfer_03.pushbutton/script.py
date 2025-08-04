@@ -109,6 +109,7 @@ from System.IO import MemoryStream
 from System.Windows.Forms import DataGridViewButtonColumn
 
 from System import Array
+from pyrevit import forms
 import math, re, sys
 
 # ==================================================
@@ -138,7 +139,7 @@ def find_target_doc(target_title_substring):
 
 
 # Set this to part of your target doc filename (e.g., "OVT2")
-target_doc = find_target_doc("BNZ_OMO_OV2_N_IT_MPO_Sanitaire Installatie.rvt")
+target_doc = find_target_doc("BNZ_OMO_OV2_N_IT_MPO_Sanitaire Installatie")
 
 
 # === STEP 1 & 2: COLLECT VIEWS, SHEETS, SCOPE BOXES
@@ -157,10 +158,11 @@ def collect_views_and_sheets(source_doc, main_view_name):
     for v in FilteredElementCollector(source_doc).OfClass(ViewPlan):
         if (
             not v.IsTemplate
-            and v.GetPrimarViewId().IntegerValue == main_view.Id.IntegerValue
+            and v.GetPrimaryViewId().IntegerValue == main_view.Id.IntegerValue
         ):
             dependent_views.append(v)
     all_views = [main_view] + dependent_views
+    print("DEBUG: Views found: ", [v.Name for v in all_views])
     # Find sheets containing any of these views
     view_ids = set(v.Id.IntegerValue for v in all_views)
     sheets = []
@@ -170,11 +172,26 @@ def collect_views_and_sheets(source_doc, main_view_name):
             if hasattr(vp, "ViewId") and vp.ViewId.IntegerValue in view_ids:
                 sheets.append(s)
                 break
+    print("DEBUG: Sheets found: ", [s.SheetNumber for s in sheets])
     # Find all unique scope boxes
     scope_box_ids = set()
-    for v in all_views:
-        if v.ScopeBox and v.ScopeBox.IntegerValue != -1:
-            scope_box_ids.add(v.ScopeBox)
+    for s in sheets:
+        for vp_id in s.GetAllViewports():
+            vp = source_doc.GetElement(vp_id)
+            if hasattr(vp, "ViewId") and vp.ViewId.IntegerValue in view_ids:
+                # Try to get scope box from the viewport (works for placed dependent views)
+                scope_box_param = vp.LookupParameter("Scope Box")
+                if (
+                    scope_box_param
+                    and scope_box_param.StorageType == StorageType.ElementId
+                ):
+                    sb_id = scope_box_param.AsElementId()
+                    if sb_id != ElementId.InvalidElementId:
+                        scope_box_ids.add(sb_id)
+    print(
+        "DEBUG: Scope boxes found: ",
+        [source_doc.GetElement(sb).Name for sb in scope_box_ids],
+    )
     return all_views, sheets, scope_box_ids
 
 
@@ -195,7 +212,13 @@ def copy_scope_boxes(source_doc, target_doc, scope_box_ids):
         # id_map: Dict[ElementId, ElementId]
         t.Commit()
     # Map old scopebox id to new one in target doc
-    return dict(id_map)
+    # Convert ElementIdMap to a Python dict (old_id: new_id)
+    id_dict = {}
+    it = id_map.ForwardIterator()
+    it.Reset()
+    while it.MoveNext():
+        id_dict[it.Key] = it.Value
+    return id_dict
 
 
 # === STEP 4: COPY VIEWS
@@ -273,7 +296,25 @@ def copy_sheets(source_doc, target_doc, sheets, view_id_map):
 # === MAIN FUNCTION
 def main():
     # Set this to your main floor plan or sheet view name to copy
-    main_view_name = "SA 00 Passage"  # Or prompt user
+    def pick_main_view_name(doc):
+        view_names = sorted(
+            [
+                v.Name
+                for v in FilteredElementCollector(doc).OfClass(ViewPlan)
+                if not v.IsTemplate
+            ]
+        )
+        result = forms.SelectFromList.show(
+            view_names, title="Select Main Floor Plan", multiselect=False
+        )
+        return result
+
+    main_view_name = pick_main_view_name(doc)
+    if not main_view_name:
+        TaskDialog.Show("Cancelled", "No main view selected.")
+        import sys
+
+        sys.exit()
     # 1. Collect all views, sheets, and scope boxes needed
     all_views, sheets, scope_box_ids = collect_views_and_sheets(doc, main_view_name)
     if not all_views or not sheets or not scope_box_ids:
