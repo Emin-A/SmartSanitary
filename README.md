@@ -139,3 +139,11 @@ Do not redistribute without permission.
 ## Changelog
 
 - v1.0 (2025-04-12): Initial release
+
+## Roadmap
+
+- v1.1: Config file (schedule names, view template name, text-note defaults)
+- v1.2: Dry-run mode + export report (CSV)
+- v1.3: Better boundary handling + element inclusion options (categories on/off)
+- v1.4: Presets per company template (one-click setup)
+
