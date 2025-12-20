@@ -1,5 +1,3 @@
-# Geberit
-
 # Smart Piping Sheet Generator for Revit (pyRevit)
 
 Select a prefab region → auto-number pipes/tags → generate a cropped plan + sheet + 3D view + filtered schedules — in one run.
